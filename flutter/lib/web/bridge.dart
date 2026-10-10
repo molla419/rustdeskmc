@@ -750,6 +750,11 @@ class RustdeskImpl {
         ]));
   }
 
+  Future<void> sessionAcceptUac(
+      {required UuidValue sessionId, dynamic hint}) {
+    throw UnimplementedError("sessionAcceptUac");
+  }
+
   Future<void> sessionSwitchSides(
       {required UuidValue sessionId, dynamic hint}) {
     throw UnimplementedError("sessionSwitchSides");

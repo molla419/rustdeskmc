@@ -787,6 +787,7 @@ message ElevationRequest {
   oneof union {
     bool direct = 1;
     ElevationRequestWithLogon logon = 2;
+    bool accept_secure_uac = 3;
   }
 }
 

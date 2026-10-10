@@ -226,6 +226,8 @@ pub fn core_main() -> Option<Vec<String>> {
                     log::error!("Failed to uninstall: {}", err);
                 }
                 return None;
+            } else if args[0] == "--accept-uac" {
+                std::process::exit(platform::run_accept_uac_helper());
             } else if args[0] == "--update" {
                 if config::is_disable_installation() {
                     return None;

@@ -3923,6 +3923,9 @@ impl Connection {
                             ))
                             .await;
                         }
+                        Some(elevation_request::Union::AcceptSecureUac(_)) => {
+                            self.handle_accept_uac().await;
+                        }
                         _ => {}
                     },
                     Some(misc::Union::AudioFormat(format)) => {
@@ -4043,8 +4046,12 @@ impl Connection {
                             NonZeroI64::new(request.req_timestamp)
                                 .unwrap_or(NonZeroI64::new(get_time()).unwrap()),
                         );
-                        // Notify the connection manager.
-                        self.send_to_cm(Data::VoiceCallIncoming);
+                        if self.allow_auto_voice_call() {
+                            self.handle_voice_call(true).await;
+                        } else {
+                            // Notify the connection manager.
+                            self.send_to_cm(Data::VoiceCallIncoming);
+                        }
                     } else {
                         self.close_voice_call().await;
                     }
@@ -4649,6 +4656,45 @@ impl Connection {
         self.update_auto_disconnect_timer();
     }
 
+    #[cfg(windows)]
+    async fn handle_accept_uac(&mut self) {
+        let err = if !self.keyboard {
+            "No permission".to_string()
+        } else if !crate::platform::is_installed() {
+            "Accepting UAC requires RustDesk to be installed".to_string()
+        } else {
+            log::info!("Accept UAC requested by the controller");
+            self.request_service_accept_uac().await
+        };
+        let mut misc = Misc::new();
+        if err.is_empty() {
+            log::info!("UAC prompt accepted through the controller");
+            misc.set_uac(false);
+        } else {
+            misc.set_elevation_response(err);
+        }
+        let mut msg = Message::new();
+        msg.set_misc(misc);
+        self.send(msg).await;
+        self.update_auto_disconnect_timer();
+    }
+
+    #[cfg(windows)]
+    async fn request_service_accept_uac(&self) -> String {
+        let mut stream = match crate::ipc::connect(1000, crate::POSTFIX_SERVICE).await {
+            Ok(stream) => stream,
+            Err(e) => return format!("Failed to contact the RustDesk service: {e}"),
+        };
+        if stream.send(&crate::ipc::Data::AcceptUac).await.is_err() {
+            return "Failed to contact the RustDesk service".to_string();
+        }
+        match timeout(30_000, stream.next()).await {
+            Ok(Some(crate::ipc::Data::AcceptUacResponse(err))) => err,
+            Ok(_) => "Unexpected response from the RustDesk service".to_string(),
+            Err(_) => "Timed out waiting for the UAC prompt to be accepted".to_string(),
+        }
+    }
+
     async fn capture_displays(&mut self, add: &[usize], sub: &[usize], set: &[usize]) {
         let video_source = self.video_source();
         let source_count = Self::video_source_count(video_source);
@@ -4821,6 +4867,17 @@ impl Connection {
                 }
             }
         }
+    }
+
+    fn allow_auto_voice_call(&self) -> bool {
+        if cfg!(target_os = "ios") {
+            return false;
+        }
+        matches!(
+            self.authed_conn_type(),
+            Some(AuthConnType::Remote | AuthConnType::ViewCamera)
+        ) && self.audio_enabled()
+            && Config::get_option(keys::OPTION_ALLOW_AUTO_VOICE_CALL) != "N"
     }
 
     pub async fn handle_voice_call(&mut self, accepted: bool) {

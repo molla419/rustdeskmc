@@ -359,6 +359,10 @@ pub enum Data {
     Close,
     #[cfg(windows)]
     SAS,
+    #[cfg(windows)]
+    AcceptUac,
+    #[cfg(windows)]
+    AcceptUacResponse(String),
     UserSid(Option<u32>),
     OnlineStatus(Option<(i64, bool)>),
     Config((String, Option<String>)),

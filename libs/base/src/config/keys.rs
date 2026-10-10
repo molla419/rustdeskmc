@@ -12,6 +12,7 @@ pub const OPTION_FOLLOW_REMOTE_CURSOR: &str = "follow_remote_cursor";
 pub const OPTION_FOLLOW_REMOTE_WINDOW: &str = "follow_remote_window";
 pub const OPTION_SHOW_QUALITY_MONITOR: &str = "show_quality_monitor";
 pub const OPTION_DISABLE_AUDIO: &str = "disable_audio";
+pub const OPTION_AUTO_VOICE_CALL: &str = "auto-voice-call";
 pub const OPTION_ENABLE_REMOTE_PRINTER: &str = "enable-remote-printer";
 pub const OPTION_DISABLE_CLIPBOARD: &str = "disable_clipboard";
 pub const OPTION_LOCK_AFTER_SESSION_END: &str = "lock_after_session_end";
@@ -62,6 +63,7 @@ pub const OPTION_AUTO_DISCONNECT_TIMEOUT: &str = "auto-disconnect-timeout";
 pub const OPTION_ALLOW_ONLY_CONN_WINDOW_OPEN: &str = "allow-only-conn-window-open";
 pub const OPTION_ALLOW_AUTO_RECORD_INCOMING: &str = "allow-auto-record-incoming";
 pub const OPTION_ALLOW_AUTO_RECORD_OUTGOING: &str = "allow-auto-record-outgoing";
+pub const OPTION_ALLOW_AUTO_VOICE_CALL: &str = "allow-auto-voice-call";
 pub const OPTION_HIDE_RECORDING_BUTTON: &str = "hide-recording-button";
 pub const OPTION_WINDOWS_SERVICE_VIDEO_SAVE_DIRECTORY: &str =
     "windows-service-video-save-directory";

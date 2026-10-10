@@ -1185,6 +1185,15 @@ impl<T: InvokeUiSession> Remote<T> {
                 allow_err!(peer.send(&msg).await);
                 self.elevation_requested = true;
             }
+            Data::AcceptUac => {
+                let mut request = ElevationRequest::new();
+                request.set_accept_secure_uac(true);
+                let mut misc = Misc::new();
+                misc.set_elevation_request(request);
+                let mut msg = Message::new();
+                msg.set_misc(misc);
+                allow_err!(peer.send(&msg).await);
+            }
             Data::NewVoiceCall => {
                 let msg = new_voice_call_request(true);
                 // Save the voice call request timestamp for the further validation.
@@ -1643,6 +1652,19 @@ impl<T: InvokeUiSession> Remote<T> {
 
                         if self.handler.is_file_transfer() {
                             self.handler.load_last_jobs();
+                        }
+
+                        // Auto-start a voice call on first connect so the mic is live
+                        // without pressing "Voice call". Per-peer opt-out via
+                        // `auto-voice-call` = "N"; the End-call UI stays the off switch.
+                        #[cfg(not(target_os = "ios"))]
+                        if !self.is_connected
+                            && (self.handler.is_default() || self.handler.is_view_camera())
+                            && self.handler.lc.read().unwrap().get_option(
+                                keys::OPTION_AUTO_VOICE_CALL,
+                            ) != "N"
+                        {
+                            self.handle_msg_from_ui(Data::NewVoiceCall, peer).await;
                         }
 
                         self.is_connected = true;

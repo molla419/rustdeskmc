@@ -4001,9 +4001,12 @@ class ElevationModel with ChangeNotifier {
   ElevationModel(this.parent);
   bool _running = false;
   bool _canElevate = false;
+  bool _isWindows = false;
   bool get showRequestMenu => _canElevate && !_running;
+  bool get showAcceptUacMenu => _isWindows;
   onPeerInfo(PeerInfo pi) {
     _canElevate = pi.platform == kPeerPlatformWindows && pi.sasEnabled == false;
+    _isWindows = pi.platform == kPeerPlatformWindows;
     _running = false;
   }
 

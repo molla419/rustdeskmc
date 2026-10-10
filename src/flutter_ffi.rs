@@ -947,6 +947,12 @@ pub fn session_elevate_with_logon(session_id: SessionID, username: String, passw
     }
 }
 
+pub fn session_accept_uac(session_id: SessionID) {
+    if let Some(session) = sessions::get_session_by_session_id(&session_id) {
+        session.accept_uac();
+    }
+}
+
 pub fn session_switch_sides(session_id: SessionID) {
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
         session.switch_sides();

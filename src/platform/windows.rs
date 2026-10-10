@@ -741,6 +741,16 @@ async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
                             ipc::Data::SAS => {
                                 send_sas();
                             }
+                            ipc::Data::AcceptUac => {
+                                let err = tokio::task::spawn_blocking(move || {
+                                    run_accept_uac_in_session(session_id)
+                                })
+                                .await
+                                .unwrap_or_else(|e| format!("UAC accept task failed: {e}"));
+                                allow_err!(
+                                    stream.send(&ipc::Data::AcceptUacResponse(err)).await
+                                );
+                            }
                             ipc::Data::UserSid(usid) => {
                                 if let Some(usid) = usid {
                                     if session_id != usid {
@@ -942,6 +952,202 @@ async fn send_close_async(postfix: &str) -> ResultType<()> {
     // sleep a while to wait for closing and exit
     sleep(0.1).await;
     Ok(())
+}
+
+// Runs the `--accept-uac` helper: presses "Yes" on the secure-desktop UAC
+// prompt in the given session. Returns "" on success, otherwise a message
+// for the controller. Must run in the SYSTEM service, which launches the
+// actual helper into the session, since desktops are session-scoped.
+pub fn run_accept_uac_in_session(session_id: DWORD) -> String {
+    let exe = std::env::current_exe()
+        .map(|p| p.to_str().unwrap_or("").to_owned())
+        .unwrap_or_default();
+    if exe.is_empty() {
+        return "Failed to locate the RustDesk executable".to_string();
+    }
+    let cmd = format!("\"{exe}\" --accept-uac");
+    let handle = match launch_privileged_process(session_id, &cmd) {
+        Ok(h) if !h.is_null() => h,
+        _ => return "Failed to launch the UAC accept helper".to_string(),
+    };
+    use winapi::um::synchapi::{WaitForSingleObject, WAIT_OBJECT_0};
+    let mut code: DWORD = 0;
+    let err = if unsafe { WaitForSingleObject(handle, 30_000) } != WAIT_OBJECT_0 {
+        "Timed out waiting for the UAC prompt to be accepted".to_string()
+    } else if unsafe { GetExitCodeProcess(handle, &mut code) } == FALSE {
+        "Failed to read the UAC accept result".to_string()
+    } else {
+        match code {
+            0 => String::new(),
+            1 => "No UAC prompt is currently shown on the remote device".to_string(),
+            2 => "Failed to press the UAC consent button".to_string(),
+            _ => "The UAC accept helper failed".to_string(),
+        }
+    };
+    unsafe {
+        CloseHandle(handle);
+    }
+    err
+}
+
+// Entry point of the `--accept-uac` helper process, launched as SYSTEM into
+// the active session. Returns 0 when no consent prompt remains, 1 when no
+// prompt is shown, 2 when its button cannot be pressed.
+pub fn run_accept_uac_helper() -> i32 {
+    if !is_process_consent_running().unwrap_or(false) {
+        return 1;
+    }
+    for desktop in ["Winlogon", "Default"] {
+        if click_consent_button_on_desktop(desktop) {
+            return 0;
+        }
+        if !is_process_consent_running().unwrap_or(false) {
+            return 0;
+        }
+    }
+    2
+}
+
+fn click_consent_button_on_desktop(desktop_name: &str) -> bool {
+    use std::os::windows::ffi::OsStrExt;
+    let wide: Vec<u16> = std::ffi::OsStr::new(desktop_name)
+        .encode_wide()
+        .chain(Some(0).into_iter())
+        .collect();
+    let saved =
+        unsafe { GetThreadDesktop(winapi::um::processthreadsapi::GetCurrentThreadId()) };
+    let target = unsafe {
+        OpenDesktopW(
+            wide.as_ptr(),
+            0,
+            FALSE,
+            winapi::um::winnt::GENERIC_ALL,
+        )
+    };
+    if target.is_null() {
+        return false;
+    }
+    if unsafe { SetThreadDesktop(target) } == FALSE {
+        unsafe {
+            CloseDesktop(target);
+        }
+        return false;
+    }
+    let mut done = false;
+    if let Some(dialog) = find_consent_window() {
+        if let Some(button) = find_consent_button(dialog) {
+            unsafe {
+                SendMessageW(button, BM_CLICK, 0, 0);
+            }
+            done = wait_consent_exit();
+        }
+    }
+    unsafe {
+        SetThreadDesktop(saved);
+        CloseDesktop(target);
+    }
+    done
+}
+
+fn find_consent_window() -> Option<HWND> {
+    let mut hwnd: HWND = null_mut();
+    unsafe {
+        EnumDesktopWindows(
+            null_mut(),
+            Some(enum_consent_window),
+            &mut hwnd as *mut HWND as LPARAM,
+        );
+    }
+    if hwnd.is_null() {
+        None
+    } else {
+        Some(hwnd)
+    }
+}
+
+unsafe extern "system" fn enum_consent_window(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    let slot = &mut *(lparam as *mut HWND);
+    let mut pid: DWORD = 0;
+    GetWindowThreadProcessId(hwnd, &mut pid);
+    if pid == 0 {
+        return TRUE;
+    }
+    let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if handle.is_null() {
+        return TRUE;
+    }
+    let mut buf = [0u16; 260];
+    let mut len = buf.len() as DWORD;
+    let ok = QueryFullProcessImageNameW(handle, 0, buf.as_mut_ptr(), &mut len);
+    CloseHandle(handle);
+    if ok == FALSE {
+        return TRUE;
+    }
+    if wide_ends_with(&buf[..len as usize], b"consent.exe") {
+        *slot = hwnd;
+        FALSE
+    } else {
+        TRUE
+    }
+}
+
+fn find_consent_button(dialog: HWND) -> Option<HWND> {
+    let mut button: HWND = null_mut();
+    unsafe {
+        EnumChildWindows(
+            dialog,
+            Some(enum_consent_button),
+            &mut button as *mut HWND as LPARAM,
+        );
+    }
+    if button.is_null() {
+        None
+    } else {
+        Some(button)
+    }
+}
+
+unsafe extern "system" fn enum_consent_button(hwnd: HWND, lparam: LPARAM) -> BOOL {
+    let slot = &mut *(lparam as *mut HWND);
+    let mut class = [0u16; 32];
+    let n = GetClassNameW(hwnd, class.as_mut_ptr(), class.len() as i32);
+    if n <= 0 || !wide_eq(&class[..n as usize], "Button") {
+        return TRUE;
+    }
+    let mut text = [0u16; 64];
+    let n = GetWindowTextW(hwnd, text.as_mut_ptr(), text.len() as i32);
+    if n <= 0 {
+        return TRUE;
+    }
+    let text = &text[..n as usize];
+    if wide_eq(text, "&Yes") || wide_eq(text, "Yes") {
+        *slot = hwnd;
+        FALSE
+    } else {
+        TRUE
+    }
+}
+
+fn wait_consent_exit() -> bool {
+    for _ in 0..16 {
+        if !is_process_consent_running().unwrap_or(true) {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    !is_process_consent_running().unwrap_or(true)
+}
+
+fn wide_eq(wide: &[u16], s: &str) -> bool {
+    wide.len() == s.len() && wide.iter().zip(s.bytes()).all(|(w, b)| *w == b as u16)
+}
+
+fn wide_ends_with(path: &[u16], suffix: &[u8]) -> bool {
+    path.len() >= suffix.len()
+        && path[path.len() - suffix.len()..]
+            .iter()
+            .zip(suffix.iter())
+            .all(|(w, b)| (*w as u8).to_ascii_lowercase() == b.to_ascii_lowercase())
 }
 
 // https://docs.microsoft.com/en-us/windows/win32/api/sas/nf-sas-sendsas

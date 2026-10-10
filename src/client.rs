@@ -4997,6 +4997,7 @@ pub enum Data {
     RecordScreen(bool),
     ElevateDirect,
     ElevateWithLogon(String, String),
+    AcceptUac,
     NewVoiceCall,
     CloseVoiceCall,
     ContinueInsecureConnection,

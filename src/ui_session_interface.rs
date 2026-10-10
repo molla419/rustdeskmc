@@ -1493,6 +1493,10 @@ impl<T: InvokeUiSession> Session<T> {
         self.send(Data::ElevateWithLogon(username, password));
     }
 
+    pub fn accept_uac(&self) {
+        self.send(Data::AcceptUac);
+    }
+
     #[cfg(any(target_os = "android", target_os = "ios", not(feature = "flutter")))]
     pub fn switch_sides(&self) {}
 

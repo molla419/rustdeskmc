@@ -349,6 +349,19 @@ List<TTextMenu> toolbarControls(BuildContext context, String id, FFI ffi) {
               showRequestElevationDialog(sessionId, ffi.dialogManager)),
     );
   }
+  // accept-uac
+  if (isDefaultConn &&
+      perms['keyboard'] != false &&
+      ffi.elevationModel.showAcceptUacMenu) {
+    v.add(
+      TTextMenu(
+          child: Text(translate('Accept UAC')),
+          onPressed: () {
+            bind.sessionAcceptUac(sessionId: sessionId);
+            showWaitUacDialog(sessionId, ffi.dialogManager, "wait-uac");
+          }),
+    );
+  }
   // osPassword
   if (isDefaultConn && perms['keyboard'] != false) {
     v.add(

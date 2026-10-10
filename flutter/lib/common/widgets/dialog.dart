@@ -1350,6 +1350,12 @@ void showOnBlockDialog(
           "${translate(text)}${type.contains('uac') ? '\n' : '\n\n'}${translate('request_elevation_tip')}"),
       actions: [
         dialogButton('Wait', onPressed: close, isOutline: true),
+        if (type.contains('uac'))
+          dialogButton('Accept UAC', onPressed: () {
+            close();
+            bind.sessionAcceptUac(sessionId: sessionId);
+            showWaitUacDialog(sessionId, dialogManager, "wait-uac");
+          }),
         dialogButton('Request Elevation', onPressed: submit),
       ],
       onSubmit: submit,
