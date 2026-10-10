@@ -1,0 +1,10 @@
+name: Test Callee
+
+on:
+  workflow_call:
+
+jobs:
+  echo:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "callee works"
