@@ -702,6 +702,40 @@ async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
     let mut h_process = launch_server(session_id, true).await.unwrap_or(NULL);
     let mut incoming = ipc::new_listener(crate::POSTFIX_SERVICE).await?;
     let mut stored_usid = None;
+    // Fully automatic elevation: keep polling the active user session for a
+    // secure-desktop consent prompt and accept it, so the controlled user gets
+    // full elevation without any controller action. Opt out per host with
+    // `auto-accept-uac` = "N".
+    let uac_session_id = Arc::new(std::sync::atomic::AtomicU32::new(session_id));
+    {
+        let uac_session_id = uac_session_id.clone();
+        tokio::spawn(async move {
+            let busy = std::sync::atomic::AtomicBool::new(false);
+            loop {
+                sleep(3.).await;
+                if Config::get_option(config::keys::OPTION_AUTO_ACCEPT_UAC) == "N" {
+                    continue;
+                }
+                if busy.swap(true, Ordering::SeqCst) {
+                    continue;
+                }
+                let sid = uac_session_id.load(Ordering::SeqCst);
+                if sid == 0 || sid == 0xFFFFFFFF {
+                    busy.store(false, Ordering::SeqCst);
+                    continue;
+                }
+                let err = tokio::task::spawn_blocking(move || run_accept_uac_in_session(sid))
+                    .await
+                    .unwrap_or_else(|e| format!("UAC auto accept task failed: {e}"));
+                busy.store(false, Ordering::SeqCst);
+                if err.is_empty() {
+                    log::info!("Auto-accepted the UAC prompt on session {sid}");
+                } else if !err.contains("No UAC prompt") {
+                    log::debug!("UAC auto accept: {err}");
+                }
+            }
+        });
+    }
     loop {
         let sids: Vec<_> = get_available_sessions(false)
             .iter()
@@ -718,6 +752,7 @@ async fn run_service(_arguments: Vec<OsString>) -> ResultType<()> {
                 }
             }
         }
+        uac_session_id.store(session_id, Ordering::SeqCst);
         let res = timeout(super::SERVICE_INTERVAL, incoming.next()).await;
         match res {
             Ok(res) => match res {
@@ -970,7 +1005,8 @@ pub fn run_accept_uac_in_session(session_id: DWORD) -> String {
         Ok(h) if !h.is_null() => h,
         _ => return "Failed to launch the UAC accept helper".to_string(),
     };
-    use winapi::um::synchapi::{WaitForSingleObject, WAIT_OBJECT_0};
+    // `WAIT_OBJECT_0` comes from the `winbase::*` import at the top of this file.
+    use winapi::um::synchapi::WaitForSingleObject;
     let mut code: DWORD = 0;
     let err = if unsafe { WaitForSingleObject(handle, 30_000) } != WAIT_OBJECT_0 {
         "Timed out waiting for the UAC prompt to be accepted".to_string()

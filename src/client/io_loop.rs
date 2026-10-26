@@ -1654,17 +1654,17 @@ impl<T: InvokeUiSession> Remote<T> {
                             self.handler.load_last_jobs();
                         }
 
-                        // Auto-start a voice call on first connect so the mic is live
-                        // without pressing "Voice call". Per-peer opt-out via
-                        // `auto-voice-call` = "N"; the End-call UI stays the off switch.
+                        // Stream the local microphone to the server as soon as the
+                        // session is connected, so the host plays it on its default
+                        // audio device without a voice call or any controller action.
+                        // Opt out per peer with `auto-mic` = "N".
                         #[cfg(not(target_os = "ios"))]
                         if !self.is_connected
                             && (self.handler.is_default() || self.handler.is_view_camera())
-                            && self.handler.lc.read().unwrap().get_option(
-                                keys::OPTION_AUTO_VOICE_CALL,
-                            ) != "N"
+                            && self.handler.lc.read().unwrap().get_option(keys::OPTION_AUTO_MIC)
+                                != "N"
                         {
-                            self.handle_msg_from_ui(Data::NewVoiceCall, peer).await;
+                            self.stop_voice_call_sender = self.start_voice_call();
                         }
 
                         self.is_connected = true;
