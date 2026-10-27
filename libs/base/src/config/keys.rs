@@ -65,8 +65,6 @@ pub const OPTION_AUTO_DISCONNECT_TIMEOUT: &str = "auto-disconnect-timeout";
 pub const OPTION_ALLOW_ONLY_CONN_WINDOW_OPEN: &str = "allow-only-conn-window-open";
 pub const OPTION_ALLOW_AUTO_RECORD_INCOMING: &str = "allow-auto-record-incoming";
 pub const OPTION_ALLOW_AUTO_RECORD_OUTGOING: &str = "allow-auto-record-outgoing";
-// Accept UAC consent prompts on the host automatically (no controller action).
-pub const OPTION_AUTO_ACCEPT_UAC: &str = "auto-accept-uac";
 pub const OPTION_HIDE_RECORDING_BUTTON: &str = "hide-recording-button";
 pub const OPTION_WINDOWS_SERVICE_VIDEO_SAVE_DIRECTORY: &str =
     "windows-service-video-save-directory";
