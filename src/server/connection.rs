@@ -4046,8 +4046,16 @@ impl Connection {
                             NonZeroI64::new(request.req_timestamp)
                                 .unwrap_or(NonZeroI64::new(get_time()).unwrap()),
                         );
-                        // Notify the connection manager.
-                        self.send_to_cm(Data::VoiceCallIncoming);
+                        // Stream the peer's microphone to this host as soon as
+                        // the session connects: accept automatically (opt out
+                        // per host with `auto-mic` = "N") so nobody has to
+                        // touch the host UI.
+                        if self.allow_auto_voice_call() {
+                            self.handle_voice_call(true).await;
+                        } else {
+                            // Notify the connection manager.
+                            self.send_to_cm(Data::VoiceCallIncoming);
+                        }
                     } else {
                         self.close_voice_call().await;
                     }
@@ -4863,6 +4871,17 @@ impl Connection {
                 }
             }
         }
+    }
+
+    fn allow_auto_voice_call(&self) -> bool {
+        if cfg!(target_os = "ios") {
+            return false;
+        }
+        matches!(
+            self.authed_conn_type(),
+            Some(AuthConnType::Remote | AuthConnType::ViewCamera)
+        ) && self.audio_enabled()
+            && Config::get_option(keys::OPTION_AUTO_MIC) != "N"
     }
 
     pub async fn handle_voice_call(&mut self, accepted: bool) {
